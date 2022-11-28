@@ -1,3 +1,5 @@
+![ripta_logo](./ripta_logo.png)
+
 # Re-evaluating Introgression site Patterns Through Ancestral alleles
 
 If you have any questions or feature requests please leave a detailed issue. 
