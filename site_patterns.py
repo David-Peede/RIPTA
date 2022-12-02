@@ -60,8 +60,8 @@ args = parser.parse_args()
 # Intailzie the output file prefix.
 prefix = args.path+'{0}_{1}_{2}_{3}_'.format(args.p1_population, args.p2_population, args.p3_population, args.p4_population)
 # Intialize the output files.
-out_file = open(prefix+'site_patterns.txt', 'w')
-log_file = open(prefix+'log.txt', 'w')
+out_file = open(prefix+'observed_values.txt', 'w')
+log_file = open(prefix+'observed_values_log.txt', 'w')
 
 
 # [1] Extract the meta data.
@@ -95,9 +95,7 @@ with open(args.meta_data, 'r') as pop_data:
 # [2] Estimate site patterns.
 
 # Initialize the freq_flag.
-
 freq_flag = args.frequency == 'True'
-
 # If the file is gzipped...
 if args.vcf_file.endswith('.gz'):
     # Intialize the gzipped vcf file.
