@@ -9,6 +9,7 @@ from collections import defaultdict
 
 
 #TODO: move to SharedMemory, maybe.
+from pympler import asizeof
 g_state = {}
 
 
@@ -573,7 +574,6 @@ def main():
 
     # [2] Estimate site patterns.
     g_state['site_patterns'] = estimate_site_patterns()
-    quit()
 
     # [3] Perform bootstrapping.
     # Intialize a header list.
