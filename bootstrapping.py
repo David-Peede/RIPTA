@@ -579,11 +579,9 @@ def main():
 
     # [1] Extract the meta data.
     g_state['pop_dicc'] = build_pop_dicc()
-    print(1)
 
     # [2] Estimate site patterns.
     g_state['site_patterns'] = estimate_site_patterns()
-    print(2)
 
     # [3] Perform bootstrapping.
     # Intialize a header list.
@@ -602,7 +600,6 @@ def main():
     #out_file.writelines(pool.map(bootstrap_worker, range(g_state['args'].replicates)))
     lines = pool.map(bootstrap_worker, range(g_state['args'].replicates))
     pool.close()
-    print(3)
     out_file.writelines(lines)
 
     # [4] Close output files.
