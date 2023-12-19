@@ -7,11 +7,6 @@ import itertools
 import multiprocessing as mp
 from collections import defaultdict
 
-# Profiling
-import io
-import cProfile
-import pstats
-
 
 #TODO: move to SharedMemory
 g_state = {}
@@ -359,17 +354,16 @@ def bootstrap_worker(rep):
     starts = [random.randint(1, g_state['args'].contig_length-g_state['args'].block_size) for _ in range(g_state['blocks'])]
     # Sort the starting positions.
     starts = sorted(starts)
-    # Intialzie a dictioanry to store position weights.
+    # Initialize a dictioanry to store position weights.
     pos_weight_dicc = defaultdict(int)
     # For every start position...
     for start in starts:
         # For every position covered by the start and end position...
         for pos in range(start, start+g_state['args'].block_size):
+            if pos not in g_state['site_patterns'].keys():
+                continue
             # Add an additional weight.
             pos_weight_dicc[pos] += 1
-
-    # Determine which bootstrapped positions overlap with the observed positions.
-    overlap_list = list(set(g_state['site_patterns'].keys()) & set(pos_weight_dicc.keys()))
     # If site patterns are to be calculated from derived allele frequencies...
     if g_state['args'].frequency == 'True':
         # Intialize a dictionary to store bootstrapped site patterns.
@@ -379,14 +373,12 @@ def bootstrap_worker(rep):
             'BAAA': 0, 'BAAA_HOM': 0,
             'ABAA': 0, 'ABAA_HOM': 0,
         }
-        # If there are overlapping positions...
-        if len(overlap_list) > 0:
-            # For every overlapping position...
-            for pos in overlap_list:
-                # For every site pattern...
-                for key in bootstrap_rep.keys():
-                    # Update the bootstrapped dictionary.
-                    bootstrap_rep[key] += (g_state['site_patterns'][pos][key] * pos_weight_dicc[pos])
+        # For every overlapping position...
+        for pos in pos_weight_dicc.keys():
+            # For every site pattern...
+            for key in bootstrap_rep.keys():
+                # Update the bootstrapped dictionary.
+                bootstrap_rep[key] += (g_state['site_patterns'][pos][key] * pos_weight_dicc[pos])
         # Calculate numerators and denonimators for detection metrics.
         d_num = (bootstrap_rep['ABBA'] - bootstrap_rep['BABA'])
         d_den = (bootstrap_rep['ABBA'] + bootstrap_rep['BABA'])
@@ -479,13 +471,11 @@ def bootstrap_worker(rep):
                 'BAAA': 0, 'BAAA_HOM': 0,
                 'ABAA': 0, 'ABAA_HOM': 0,
             }
-        # If there are overlapping positions...
-        if len(overlap_list) > 0:
-            # For every overlapping position and quartet...
-            for pos, quartet in itertools.product(overlap_list, bootstrap_rep.keys()):
-                # For every site pattern...
-                for key in bootstrap_rep[quartet].keys():
-                    bootstrap_rep[quartet][key] += (g_state['site_patterns'][pos][quartet][key] * pos_weight_dicc[pos])
+        # For every overlapping position and quartet...
+        for pos, quartet in itertools.product(pos_weight_dicc.keys(), bootstrap_rep.keys()):
+            # For every site pattern...
+            for key in bootstrap_rep[quartet].keys():
+                bootstrap_rep[quartet][key] += (g_state['site_patterns'][pos][quartet][key] * pos_weight_dicc[pos])
         # For every quartet...
         for key in bootstrap_rep.keys():
             # Calculate numerators and denonimators for detection metrics.
@@ -598,9 +588,8 @@ def main():
     # For every bootstrap replicate...
     pool = mp.Pool(min(mp.cpu_count(), g_state['args'].threads))
     #out_file.writelines(pool.map(bootstrap_worker, range(g_state['args'].replicates)))
-    lines = pool.map(bootstrap_worker, range(g_state['args'].replicates))
+    out_file.writelines(pool.map(bootstrap_worker, range(g_state['args'].replicates)))
     pool.close()
-    out_file.writelines(lines)
 
     # [4] Close output files.
     out_file.close()
