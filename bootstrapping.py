@@ -8,7 +8,7 @@ import multiprocessing as mp
 from collections import defaultdict
 
 
-#TODO: move to SharedMemory
+#TODO: move to SharedMemory, maybe.
 g_state = {}
 
 
@@ -197,7 +197,8 @@ def pattern_from_sampling(spline):
     # Randomly select a chromosome to sample.
     random_chr = random.choice(rng_vals)
     # For every index quartet...
-    for p1_idx, p2_idx, p3_idx, p4_idx in itertools.product(range(len(g_state['pop_dicc'][g_state['args'].p1_population]['IND'])),
+    for p1_idx, p2_idx, p3_idx, p4_idx in itertools.product(
+        range(len(g_state['pop_dicc'][g_state['args'].p1_population]['IND'])),
         range(len(g_state['pop_dicc'][g_state['args'].p2_population]['IND'])),
         range(len(g_state['pop_dicc'][g_state['args'].p3_population]['IND'])),
         range(len(g_state['pop_dicc'][g_state['args'].p4_population]['IND']))):
@@ -360,6 +361,7 @@ def bootstrap_worker(rep):
     for start in starts:
         # For every position covered by the start and end position...
         for pos in range(start, start+g_state['args'].block_size):
+            # We only want overlaps.
             if pos not in g_state['site_patterns'].keys():
                 continue
             # Add an additional weight.
@@ -373,12 +375,10 @@ def bootstrap_worker(rep):
             'BAAA': 0, 'BAAA_HOM': 0,
             'ABAA': 0, 'ABAA_HOM': 0,
         }
-        # For every overlapping position...
-        for pos in pos_weight_dicc.keys():
-            # For every site pattern...
-            for key in bootstrap_rep.keys():
-                # Update the bootstrapped dictionary.
-                bootstrap_rep[key] += (g_state['site_patterns'][pos][key] * pos_weight_dicc[pos])
+        # For every overlapping position and site pattern...
+        for pos, key in itertools.product(pos_weight_dicc.keys(), bootstrap_rep.keys()):
+            # Update the bootstrapped dictionary.
+            bootstrap_rep[key] += (g_state['site_patterns'][pos][key] * pos_weight_dicc[pos])
         # Calculate numerators and denonimators for detection metrics.
         d_num = (bootstrap_rep['ABBA'] - bootstrap_rep['BABA'])
         d_den = (bootstrap_rep['ABBA'] + bootstrap_rep['BABA'])
@@ -443,7 +443,8 @@ def bootstrap_worker(rep):
             bootstrap_rep['f+'] = fplus_num / float(fplus_den)
         # Intialize the results list.
         results_list = [
-            g_state['args'].p1_population, g_state['args'].p2_population, g_state['args'].p3_population, g_state['args'].p4_population,
+            g_state['args'].p1_population, g_state['args'].p2_population,
+            g_state['args'].p3_population, g_state['args'].p4_population,
             str(bootstrap_rep['ABBA']), str(bootstrap_rep['BABA']),
             str(bootstrap_rep['BAAA']), str(bootstrap_rep['ABAA']),
             str(bootstrap_rep['ABBA_HOM']), str(bootstrap_rep['BABA_HOM']),
@@ -549,12 +550,12 @@ def bootstrap_worker(rep):
                 str(bootstrap_rep[key]['BAAA']), str(bootstrap_rep[key]['ABAA']),
                 str(bootstrap_rep[key]['ABBA_HOM']), str(bootstrap_rep[key]['BABA_HOM']),
                 str(bootstrap_rep[key]['BAAA_HOM']), str(bootstrap_rep[key]['ABAA_HOM']),
-                str(bootstrap_rep[key]['D']), str(bootstrap_rep[key]['Danc']), str(bootstrap_rep[key]['D+']),
-                str(bootstrap_rep[key]['fhom']), str(bootstrap_rep[key]['fanc']), str(bootstrap_rep[key]['f+']), str(rep),
+                str(bootstrap_rep[key]['D']), str(bootstrap_rep[key]['Danc']),
+                str(bootstrap_rep[key]['D+']), str(bootstrap_rep[key]['fhom']),
+                str(bootstrap_rep[key]['fanc']), str(bootstrap_rep[key]['f+']), str(rep),
             ]
             # Write the results list to the results file.
             return '\t'.join(results_list)
-
 
 
 def main():
@@ -587,7 +588,6 @@ def main():
     g_state['blocks'] = g_state['args'].contig_length // g_state['args'].block_size
     # For every bootstrap replicate...
     pool = mp.Pool(min(mp.cpu_count(), g_state['args'].threads))
-    #out_file.writelines(pool.map(bootstrap_worker, range(g_state['args'].replicates)))
     out_file.writelines(pool.map(bootstrap_worker, range(g_state['args'].replicates)))
     pool.close()
 
