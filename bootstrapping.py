@@ -9,7 +9,6 @@ from collections import defaultdict
 
 
 #TODO: move to SharedMemory, maybe.
-from pympler import asizeof
 g_state = {}
 
 
@@ -177,75 +176,68 @@ def pattern_from_derived(spline):
     return ret
 
 
-def pattern_from_sampling(spline):
+def to_genotypes(p1_idx, p2_idx, p3_idx, p4_idx, spline, random_chr):
+    p1_gt = spline[g_state['pop_dicc'][g_state['args'].p1_population]['IDX'][p1_idx]][random_chr]
+    p2_gt = spline[g_state['pop_dicc'][g_state['args'].p2_population]['IDX'][p2_idx]][random_chr]
+    p3_gt = spline[g_state['pop_dicc'][g_state['args'].p3_population]['IDX'][p3_idx]][random_chr]
+    p4_gt = spline[g_state['pop_dicc'][g_state['args'].p4_population]['IDX'][p4_idx]][random_chr]
+    return f'{p1_gt}{p2_gt}{p3_gt}{p4_gt}', p1_gt, p2_gt, p3_gt, p4_gt
+
+
+def pattern_from_sampling(spline, random_chr):
     ret = {}
     # For every quartet...
-    for p1, p2, p3, p4 in itertools.product(g_state['pop_dicc'][g_state['args'].p1_population]['IND'],
-        g_state['pop_dicc'][g_state['args'].p2_population]['IND'],
-        g_state['pop_dicc'][g_state['args'].p3_population]['IND'],
-        g_state['pop_dicc'][g_state['args'].p4_population]['IND']):
-        # Intialize the quartet.
-        quartet = (p1, p2, p3, p4)
-        # Fill the dictionary to store site patterns.
-        ret[quartet] = {
-            'ABBA': 0, 'ABBA_HOM': 0,
-            'BABA': 0, 'BABA_HOM': 0,
-            'BAAA': 0, 'BAAA_HOM': 0,
-            'ABAA': 0, 'ABAA_HOM': 0,
-        }
-    # Intialize RNG values.
-    rng_vals = [0, 2]
-    # Randomly select a chromosome to sample.
-    random_chr = random.choice(rng_vals)
-    # For every index quartet...
     for p1_idx, p2_idx, p3_idx, p4_idx in itertools.product(
         range(len(g_state['pop_dicc'][g_state['args'].p1_population]['IND'])),
         range(len(g_state['pop_dicc'][g_state['args'].p2_population]['IND'])),
         range(len(g_state['pop_dicc'][g_state['args'].p3_population]['IND'])),
         range(len(g_state['pop_dicc'][g_state['args'].p4_population]['IND']))):
-        # Extract the samples.
-        p1_ind = g_state['pop_dicc'][g_state['args'].p1_population]['IND'][p1_idx]
-        p2_ind = g_state['pop_dicc'][g_state['args'].p2_population]['IND'][p2_idx]
-        p3_ind = g_state['pop_dicc'][g_state['args'].p3_population]['IND'][p3_idx]
-        p4_ind = g_state['pop_dicc'][g_state['args'].p4_population]['IND'][p4_idx]
-        # Construct the quartet.
-        quartet = (p1_ind, p2_ind, p3_ind, p4_ind)
-        # Randomly sample an allele for each focal sample.
-        p1 = spline[g_state['pop_dicc'][g_state['args'].p1_population]['IDX'][p1_idx]][random_chr]
-        p2 = spline[g_state['pop_dicc'][g_state['args'].p2_population]['IDX'][p2_idx]][random_chr]
-        p3 = spline[g_state['pop_dicc'][g_state['args'].p3_population]['IDX'][p3_idx]][random_chr]
-        p4 = spline[g_state['pop_dicc'][g_state['args'].p4_population]['IDX'][p4_idx]][random_chr]
-        # Determine the site pattern.
-        if ((p1 == '0') and (p2 == '1') and (p3 == '1') and (p4 == '0')):
-            ret[quartet]['ABBA'] += 1
-            ret[quartet]['ABBA_HOM'] += 1
-        elif ((p1 == '1') and (p2 == '0') and (p3 == '0') and (p4 == '1')):
-            ret[quartet]['ABBA'] += 1
-            ret[quartet]['ABBA_HOM'] += 1
-        elif ((p1 == '0') and (p2 == '0') and (p3 == '1') and (p4 == '0')):
-            ret[quartet]['ABBA_HOM'] += 1
-        elif ((p1 == '1') and (p2 == '1') and (p3 == '0') and (p4 == '1')):
-            ret[quartet]['ABBA_HOM'] += 1
-        elif ((p1 == '1') and (p2 == '0') and (p3 == '1') and (p4 == '0')):
-            ret[quartet]['BABA'] += 1
-        elif ((p1 == '0') and (p2 == '1') and (p3 == '0') and (p4 == '1')):
-            ret[quartet]['BABA'] += 1
-        elif ((p1 == '1') and (p2 == '0') and (p3 == '0') and (p4 == '0')):
-            ret[quartet]['BAAA'] += 1
-            ret[quartet]['BAAA_HOM'] += 1
-        elif ((p1 == '0') and (p2 == '1') and (p3 == '1') and (p4 == '1')):
-            ret[quartet]['BAAA'] += 1
-            ret[quartet]['BAAA_HOM'] += 1
-        elif ((p1 == '1') and (p2 == '1') and (p3 == '0') and (p4 == '0')):
-            ret[quartet]['BAAA_HOM'] += 1
-        elif ((p1 == '0') and (p2 == '0') and (p3 == '1') and (p4 == '1')):
-            ret[quartet]['BAAA_HOM'] += 1
-        elif ((p1 == '0') and (p2 == '1') and (p3 == '0') and (p4 == '0')):
-            ret[quartet]['ABAA'] += 1
-        elif ((p1 == '1') and (p2 == '0') and (p3 == '1') and (p4 == '1')):
-            ret[quartet]['ABAA'] += 1
+        # Initialize the quartet.
+        quartet, p1_gt, p2_gt, p3_gt, p4_gt = to_genotypes(p1_idx, p2_idx, p3_idx, p4_idx, spline, random_chr)
+        # Fill the dictionary to store site patterns.
+        if quartet in ret:
+            # Add 1 to weight since we're seeing this quartet again
+            ret[quartet][0] += 1
         else:
-            continue
+            # Store weight, site pattern info.
+            ret[quartet] = [1, {
+                'ABBA': 0, 'ABBA_HOM': 0,
+                'BABA': 0, 'BABA_HOM': 0,
+                'BAAA': 0, 'BAAA_HOM': 0,
+                'ABAA': 0, 'ABAA_HOM': 0,
+            }]
+
+            # Determine the site pattern.
+            if ((p1_gt == '0') and (p2_gt == '1') and (p3_gt == '1') and (p4_gt == '0')):
+                ret[quartet][1]['ABBA'] += 1
+                ret[quartet][1]['ABBA_HOM'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '0') and (p3_gt == '0') and (p4_gt == '1')):
+                ret[quartet][1]['ABBA'] += 1
+                ret[quartet][1]['ABBA_HOM'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '0') and (p3_gt == '1') and (p4_gt == '0')):
+                ret[quartet][1]['ABBA_HOM'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '1') and (p3_gt == '0') and (p4_gt == '1')):
+                ret[quartet][1]['ABBA_HOM'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '0') and (p3_gt == '1') and (p4_gt == '0')):
+                ret[quartet][1]['BABA'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '1') and (p3_gt == '0') and (p4_gt == '1')):
+                ret[quartet][1]['BABA'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '0') and (p3_gt == '0') and (p4_gt == '0')):
+                ret[quartet][1]['BAAA'] += 1
+                ret[quartet][1]['BAAA_HOM'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '1') and (p3_gt == '1') and (p4_gt == '1')):
+                ret[quartet][1]['BAAA'] += 1
+                ret[quartet][1]['BAAA_HOM'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '1') and (p3_gt == '0') and (p4_gt == '0')):
+                ret[quartet][1]['BAAA_HOM'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '0') and (p3_gt == '1') and (p4_gt == '1')):
+                ret[quartet][1]['BAAA_HOM'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '1') and (p3_gt == '0') and (p4_gt == '0')):
+                ret[quartet][1]['ABAA'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '0') and (p3_gt == '1') and (p4_gt == '1')):
+                ret[quartet][1]['ABAA'] += 1
+            else:
+                continue
 
     return ret
 
@@ -286,7 +278,7 @@ def line_worker(line):
     # Else...
     else:
         # Build the dictionary.
-        return (pos, pattern_from_sampling(spline))
+        return (pos, pattern_from_sampling(spline, g_state['all_lines'][pos][1]))
 
 
 def estimate_site_patterns():
@@ -340,9 +332,16 @@ def estimate_site_patterns():
                     log_file.write(err+'\n')
                     sys.exit(1)
 
+    # Store line information if building site patterns via sampling
+    if not g_state['args'].frequency:
+        g_state['all_lines'] = {}
+        for line in all_lines[line_ctr:]:
+            spline = line.split()
+            pos = int(spline[1])
+            g_state['all_lines'][pos] = [spline, random.choice([0, 2])]
+
     # Process the rest of the lines in parallel
     site_patterns = {}
-
     pool = mp.Pool(min(mp.cpu_count(), g_state['args'].threads))
     for pos, dicc in pool.map(line_worker, all_lines[line_ctr:]):
         site_patterns[pos] = dicc
@@ -454,30 +453,38 @@ def bootstrap_worker(rep):
             str(bootstrap_rep['fhom']), str(bootstrap_rep['fanc']), str(bootstrap_rep['f+']), str(rep),
         ]
         # Write the results list to the results file.
-        return '\t'.join(results_list)
+        return '\t'.join(results_list) + '\n'
     # Else...
     else:
         # Intialize a dictionary to store bootstrapped site patterns.
         bootstrap_rep = {}
         # For every quartet...
-        for p1, p2, p3, p4 in itertools.product(g_state['pop_dicc'][g_state['args'].p1_population]['IND'],
-            g_state['pop_dicc'][g_state['args'].p2_population]['IND'],
-            g_state['pop_dicc'][g_state['args'].p3_population]['IND'],
-            g_state['pop_dicc'][g_state['args'].p4_population]['IND']):
-            # Intialize the quartet.
-            quartet = (p1, p2, p3, p4)
+        for p1_idx, p2_idx, p3_idx, p4_idx in itertools.product(
+            range(len(g_state['pop_dicc'][g_state['args'].p1_population]['IND'])),
+            range(len(g_state['pop_dicc'][g_state['args'].p2_population]['IND'])),
+            range(len(g_state['pop_dicc'][g_state['args'].p3_population]['IND'])),
+            range(len(g_state['pop_dicc'][g_state['args'].p4_population]['IND']))):
+            # Get sample IDs
+            p1_ind = g_state['pop_dicc'][g_state['args'].p1_population]['IND'][p1_idx]
+            p2_ind = g_state['pop_dicc'][g_state['args'].p2_population]['IND'][p2_idx]
+            p3_ind = g_state['pop_dicc'][g_state['args'].p3_population]['IND'][p3_idx]
+            p4_ind = g_state['pop_dicc'][g_state['args'].p4_population]['IND'][p4_idx]
             # Fill the dictionary to store site patterns.
-            bootstrap_rep[quartet] = {
+            quartet_id = (p1_ind, p2_ind, p3_ind, p4_ind)
+            bootstrap_rep[quartet_id] = {
                 'ABBA': 0, 'ABBA_HOM': 0,
                 'BABA': 0, 'BABA_HOM': 0,
                 'BAAA': 0, 'BAAA_HOM': 0,
                 'ABAA': 0, 'ABAA_HOM': 0,
             }
-        # For every overlapping position and quartet...
-        for pos, quartet in itertools.product(pos_weight_dicc.keys(), bootstrap_rep.keys()):
-            # For every site pattern...
-            for key in bootstrap_rep[quartet].keys():
-                bootstrap_rep[quartet][key] += (g_state['site_patterns'][pos][quartet][key] * pos_weight_dicc[pos])
+
+            for pos in pos_weight_dicc.keys():
+                # Intialize the quartet using the same data in line_worker().
+                quartet, p1_gt, p2_gt, p3_gt, p4_gt = to_genotypes(p1_idx, p2_idx, p3_idx, p4_idx,
+                    g_state['all_lines'][pos][0], g_state['all_lines'][pos][1])
+                for key in bootstrap_rep[quartet_id].keys():
+                    bootstrap_rep[quartet_id][key] += g_state['site_patterns'][pos][quartet][1][key] * pos_weight_dicc[pos] * g_state['site_patterns'][pos][quartet][0]
+
         # For every quartet...
         for key in bootstrap_rep.keys():
             # Calculate numerators and denonimators for detection metrics.
@@ -556,7 +563,7 @@ def bootstrap_worker(rep):
                 str(bootstrap_rep[key]['fanc']), str(bootstrap_rep[key]['f+']), str(rep),
             ]
             # Write the results list to the results file.
-            return '\t'.join(results_list)
+            return '\t'.join(results_list) + '\n'
 
 
 def main():
