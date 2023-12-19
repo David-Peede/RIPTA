@@ -28,10 +28,10 @@ def parse_arguments():
         +' second column contains the population the sample belongs to.',
     )
     parser.add_argument(
-        '-f', '--frequency', choices=('True','False'),
-        required=True, action='store', type=str,
-        help='If true calculate site patterns from derived allele frequencies,'\
-        +' if false calculate site patterns by randomly sampling one chromosome.',
+        '-f', '--frequency',
+        action=argparse.BooleanOptionalAction,
+        help='Enable calculating site patterns from derived allele frequencies,'\
+        +' otherwise site patterns will be calcualted by randomly sampling one chromosome.',
     )
     parser.add_argument(
         '-p1', '--p1_population', required=True,
@@ -184,7 +184,7 @@ def pattern_from_sampling(spline):
         g_state['pop_dicc'][g_state['args'].p3_population]['IND'],
         g_state['pop_dicc'][g_state['args'].p4_population]['IND']):
         # Intialize the quartet.
-        quartet = tuple(p1, p2, p3, p4)
+        quartet = (p1, p2, p3, p4)
         # Fill the dictionary to store site patterns.
         ret[quartet] = {
             'ABBA': 0, 'ABBA_HOM': 0,
@@ -208,7 +208,7 @@ def pattern_from_sampling(spline):
         p3_ind = g_state['pop_dicc'][g_state['args'].p3_population]['IND'][p3_idx]
         p4_ind = g_state['pop_dicc'][g_state['args'].p4_population]['IND'][p4_idx]
         # Construct the quartet.
-        quartet = tuple(p1_ind, p2_ind, p3_ind, p4_ind)
+        quartet = (p1_ind, p2_ind, p3_ind, p4_ind)
         # Randomly sample an allele for each focal sample.
         p1 = spline[g_state['pop_dicc'][g_state['args'].p1_population]['IDX'][p1_idx]][random_chr]
         p2 = spline[g_state['pop_dicc'][g_state['args'].p2_population]['IDX'][p2_idx]][random_chr]
@@ -279,7 +279,7 @@ def line_worker(line):
         # Continue to the next line...
         return
     # Else-if site patterns are to be calculated from derived allele frequencies...
-    elif g_state['args'].frequency == 'True':
+    elif g_state['args'].frequency:
         # Intialize a dictionary to store site patterns for this position.
         return (pos, pattern_from_derived(spline))
     # Else...
@@ -367,7 +367,7 @@ def bootstrap_worker(rep):
             # Add an additional weight.
             pos_weight_dicc[pos] += 1
     # If site patterns are to be calculated from derived allele frequencies...
-    if g_state['args'].frequency == 'True':
+    if g_state['args'].frequency:
         # Intialize a dictionary to store bootstrapped site patterns.
         bootstrap_rep = {
             'ABBA': 0, 'ABBA_HOM': 0,
@@ -464,7 +464,7 @@ def bootstrap_worker(rep):
             g_state['pop_dicc'][g_state['args'].p3_population]['IND'],
             g_state['pop_dicc'][g_state['args'].p4_population]['IND']):
             # Intialize the quartet.
-            quartet = tuple(p1, p2, p3, p4)
+            quartet = (p1, p2, p3, p4)
             # Fill the dictionary to store site patterns.
             bootstrap_rep[quartet] = {
                 'ABBA': 0, 'ABBA_HOM': 0,
@@ -573,6 +573,7 @@ def main():
 
     # [2] Estimate site patterns.
     g_state['site_patterns'] = estimate_site_patterns()
+    quit()
 
     # [3] Perform bootstrapping.
     # Intialize a header list.
