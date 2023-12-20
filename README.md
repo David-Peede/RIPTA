@@ -109,13 +109,13 @@ python observed_values.py -v ./tutorial.tutorial_data.vcf.gz -m ./tutorial/tutor
 To assess significance by bootstrapping based on estimates from derived allele frequencies you can run:
 
 ```bash
-python bootstrapping.py -v ./tutorial/tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_freqs.txt -f True -p1 YRI -p2 CEU -p3 NEA -p4 ANC -cl 51304566 -bs 10_000_000 -r 100 -p ./tutorial/freq_results/
+python bootstrapping.py -v ./tutorial/tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_freqs.txt --frequency -p1 YRI -p2 CEU -p3 NEA -p4 ANC -cl 51304566 -bs 10_000_000 -r 100 -p ./tutorial/freq_results/
 ```
 
 and to perform bootstrapping on individual trios you can run:
 
 ```bash
-python bootstrapping.py -v ./tutorial.tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_trios.txt -f False -p1 YRI -p2 CEU -p3 NEA -p4 ANC -cl 51304566 -bs 10_000_000 -r 100 -p ./tutorial/trio_results/
+python bootstrapping.py -v ./tutorial.tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_trios.txt -p1 YRI -p2 CEU -p3 NEA -p4 ANC -cl 51304566 -bs 10_000_000 -r 100 -p ./tutorial/trio_results/
 ```
 
 Both `observed_values.py` and `bootstrapping.py` expect a filtered VCF file and will output a results and a log file in the directory you specify with the `-p` option.

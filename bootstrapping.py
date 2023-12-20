@@ -3,376 +3,371 @@ import argparse
 import gzip
 import random
 import sys
-
-# Intialize the command line options.
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    '-v', '--vcf_file', required=True,
-    type=str, action='store',
-    help='Path to the input vcf file.',
-)
-parser.add_argument(
-    '-m', '--meta_data', required=True,
-    type=str, action='store',
-    help='Path to the tab delimited text file where the first column contains'\
-    +' the sample name as it appears in the header of the input vcf file and the'\
-    +' second column contains the population the sample belongs to.',
-)
-parser.add_argument(
-    '-f', '--frequency', choices=('True','False'),
-    required=True, action='store', type=str,
-    help='If true calculate site patterns from derived allele frequencies,'\
-    +' if false calculate site patterns by randomly sampling one chromosome.',
-)
-parser.add_argument(
-    '-p1', '--p1_population', required=True,
-    type=str, action='store',
-    help='Population in the meta data file to use as P1 for comparisons'\
-    +' (ie a potential recipient population).',
-)
-parser.add_argument(
-    '-p2', '--p2_population', required=True,
-    type=str, action='store',
-    help='Population in the meta data file to use as P2 for comparisons'\
-    +' (ie a potential recipient population).',
-)
-parser.add_argument(
-    '-p3', '--p3_population', required=True,
-    type=str, action='store',
-    help='Population in the meta data file to use as P3 for comparisons'\
-    +' (ie the source population).',
-)
-parser.add_argument(
-    '-p4', '--p4_population', required=True,
-    type=str, action='store',
-    help='Population in the meta data file to use as P3 for comparisons'\
-    +' (ie the outrgroup population used for polarization).',
-)
-parser.add_argument(
-    '-cl', '--contig_length', required=True,
-    type=int, action='store',
-    help='Total length in base pairs of conting.'
-)
-parser.add_argument(
-    '-bs', '--block_size', required=True,
-    type=int, action='store',
-    help='Block size to be sampled with replacemnt for builidng bootstrapped'\
-    +' contigs.',
-)
-parser.add_argument(
-    '-r', '--replicates', required=True,
-    type=int, action='store',
-    help='Number of bootstrapped replicates to perform.'\
-)
-parser.add_argument(
-    '-p', '--path', required=False,
-    action='store', default='./',
-    help='Path for results and qc file (default = current working directory).',
-)
-args = parser.parse_args()
-
-# [0] Intialize output files.
-
-# Intailzie the output file prefix.
-prefix = args.path+'{0}_{1}_{2}_{3}_'.format(args.p1_population, args.p2_population, args.p3_population, args.p4_population)
-# Intialize the output files.
-out_file = open(prefix+'bootstraps.txt', 'w')
-log_file = open(prefix+'bootstraps_log.txt', 'w')
+import itertools
+import multiprocessing as mp
+from collections import defaultdict
 
 
-# [1] Extract the meta data.
+#TODO: move to SharedMemory, maybe.
+g_state = {}
 
-# Intialize an empty dictionary to store the focal population meta data.
-pop_dicc = {
-    args.p1_population: {'IND': [], 'IDX': []}, args.p2_population: {'IND': [], 'IDX': []},
-    args.p3_population: {'IND': [], 'IDX': []}, args.p4_population: {'IND': [], 'IDX': []},
-}
-# Open the meta data file.
-with open(args.meta_data, 'r') as pop_data:
-    # For ever line in the meta data file...
-    for line in pop_data:
-        # Split the line by tabs.
-        spline = line.split()
-        # Grab the current sample and its corresponding population.
-        ind = spline[0]
-        pop = spline[1]
-        # If the current population is a focal population.
-        if pop in list(pop_dicc.keys()):
-            # Append the sample to the population dictionary.
-            pop_dicc[pop]['IND'].append(ind)
-        # Else...
+
+def parse_arguments():
+    # Intialize the command line options.
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-v', '--vcf_file', required=True,
+        type=str, action='store',
+        help='Path to the input vcf file.',
+    )
+    parser.add_argument(
+        '-m', '--meta_data', required=True,
+        type=str, action='store',
+        help='Path to the tab delimited text file where the first column contains'\
+        +' the sample name as it appears in the header of the input vcf file and the'\
+        +' second column contains the population the sample belongs to.',
+    )
+    parser.add_argument(
+        '-f', '--frequency',
+        action=argparse.BooleanOptionalAction,
+        help='Enable calculating site patterns from derived allele frequencies,'\
+        +' otherwise site patterns will be calcualted by randomly sampling one chromosome.',
+    )
+    parser.add_argument(
+        '-p1', '--p1_population', required=True,
+        type=str, action='store',
+        help='Population in the meta data file to use as P1 for comparisons'\
+        +' (ie a potential recipient population).',
+    )
+    parser.add_argument(
+        '-p2', '--p2_population', required=True,
+        type=str, action='store',
+        help='Population in the meta data file to use as P2 for comparisons'\
+        +' (ie a potential recipient population).',
+    )
+    parser.add_argument(
+        '-p3', '--p3_population', required=True,
+        type=str, action='store',
+        help='Population in the meta data file to use as P3 for comparisons'\
+        +' (ie the source population).',
+    )
+    parser.add_argument(
+        '-p4', '--p4_population', required=True,
+        type=str, action='store',
+        help='Population in the meta data file to use as P3 for comparisons'\
+        +' (ie the outrgroup population used for polarization).',
+    )
+    parser.add_argument(
+        '-cl', '--contig_length', required=True,
+        type=int, action='store',
+        help='Total length in base pairs of conting.'
+    )
+    parser.add_argument(
+        '-bs', '--block_size', required=True,
+        type=int, action='store',
+        help='Block size to be sampled with replacemnt for builidng bootstrapped'\
+        +' contigs.',
+    )
+    parser.add_argument(
+        '-r', '--replicates', required=True,
+        type=int, action='store',
+        help='Number of bootstrapped replicates to perform.'\
+    )
+    parser.add_argument(
+        '-p', '--path', required=False,
+        action='store', default='./',
+        help='Path for results and qc file (default = current working directory).',
+    )
+    parser.add_argument(
+        '-t', '--threads', required=False,
+        type=int, action='store', default=1,
+        help='Number of threads to use (default = 1).',
+    )
+
+    return parser.parse_args()
+
+
+def build_pop_dicc():
+    # Intialize an empty dictionary to store the focal population meta data.
+    pop_dicc = {
+        g_state['args'].p1_population: {'IND': [], 'IDX': []},
+        g_state['args'].p2_population: {'IND': [], 'IDX': []},
+        g_state['args'].p3_population: {'IND': [], 'IDX': []},
+        g_state['args'].p4_population: {'IND': [], 'IDX': []}
+    }
+
+    # Open the meta data file.
+    with open(g_state['args'].meta_data, 'r') as pop_data:
+        # For ever line in the meta data file...
+        for line in pop_data:
+            # Split the line by tabs.
+            spline = line.split()
+            # Grab the current sample and its corresponding population.
+            ind = spline[0]
+            pop = spline[1]
+            # If the current population is a focal population.
+            if pop in pop_dicc:
+                # Append the sample to the population dictionary.
+                pop_dicc[pop]['IND'].append(ind)
+            # Else...
+            else:
+                # Compose the error message.
+                err = 'QC: {0} from {1} does not belong to a focal population...'.format(ind, pop)
+                # Log the error.
+                log_file.write(err+'\n')
+
+    return pop_dicc
+
+
+def pattern_from_derived(spline):
+    ret = {
+        'ABBA': 0, 'ABBA_HOM': 0,
+        'BABA': 0, 'BABA_HOM': 0,
+        'BAAA': 0, 'BAAA_HOM': 0,
+        'ABAA': 0, 'ABAA_HOM': 0,
+    }
+
+    # Intialize a alternative allele frequency dictionary.
+    freq_dicc = {}
+    # For every focal population...
+    for key in g_state['pop_dicc'].keys():
+        # Intialize an alternative allele counter.
+        alt_allele_counter = 0
+        # For every individual in the population...
+        for idx in g_state['pop_dicc'][key]['IDX']:
+            # Count the number of alternative alleles.
+            alt_allele_counter += int(spline[idx][0] == '1') + int(spline[idx][2] == '1')
+        # Determine the alternative allele frequency.
+        freq_dicc[key] = float(alt_allele_counter) / (len(g_state['pop_dicc'][key]['IDX']) * 2)
+    # If the ancestral allele is the refernce allele...
+    if freq_dicc[g_state['args'].p4_population] == 0.0:
+        # Calculate site patterns.
+        ret['ABBA'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p2_population] * freq_dicc[g_state['args'].p3_population]
+        ret['ABBA_HOM'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p3_population] * freq_dicc[g_state['args'].p3_population]
+        ret['BABA'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p2_population]) * freq_dicc[g_state['args'].p3_population]
+        ret['BABA_HOM'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p3_population]) * freq_dicc[g_state['args'].p3_population]
+        ret['BAAA'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p2_population]) * (1 - freq_dicc[g_state['args'].p3_population])
+        ret['BAAA_HOM'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p3_population]) * (1 - freq_dicc[g_state['args'].p3_population])
+        ret['ABAA'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p2_population] * (1 - freq_dicc[g_state['args'].p3_population])
+        ret['ABAA_HOM'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p3_population] * (1 - freq_dicc[g_state['args'].p3_population])
+    # Else-if the ancestral allele is the alternative allele...
+    elif freq_dicc[g_state['args'].p4_population] == 1.0:
+        # Calculate site patterns.
+        ret['ABBA'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p2_population]) * (1 - freq_dicc[g_state['args'].p3_population])
+        ret['ABBA_HOM'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p3_population]) * (1 - freq_dicc[g_state['args'].p3_population])
+        ret['BABA'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p2_population] * (1 - freq_dicc[g_state['args'].p3_population])
+        ret['BABA_HOM'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p3_population] * (1 - freq_dicc[g_state['args'].p3_population])
+        ret['BAAA'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p2_population] * freq_dicc[g_state['args'].p3_population]
+        ret['BAAA_HOM'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p3_population] * freq_dicc[g_state['args'].p3_population]
+        ret['ABAA'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p2_population]) * freq_dicc[g_state['args'].p3_population]
+        ret['ABAA_HOM'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p3_population]) * freq_dicc[g_state['args'].p3_population]
+    # Else...
+    else:
+        # Calculate site patterns.
+        ret['ABBA'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p2_population] * freq_dicc[g_state['args'].p3_population] * (1 - freq_dicc[g_state['args'].p4_population])
+        ret['ABBA_HOM'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p3_population] * freq_dicc[g_state['args'].p3_population] * (1 - freq_dicc[g_state['args'].p4_population])
+        ret['BABA'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p2_population]) * freq_dicc[g_state['args'].p3_population] * (1 - freq_dicc[g_state['args'].p4_population])
+        ret['BABA_HOM'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p3_population]) * freq_dicc[g_state['args'].p3_population] * (1 - freq_dicc[g_state['args'].p4_population])
+        ret['BAAA'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p2_population]) * (1 - freq_dicc[g_state['args'].p3_population]) * (1 - freq_dicc[g_state['args'].p4_population])
+        ret['BAAA_HOM'] += freq_dicc[g_state['args'].p1_population] * (1 - freq_dicc[g_state['args'].p3_population]) * (1 - freq_dicc[g_state['args'].p3_population]) * (1 - freq_dicc[g_state['args'].p4_population])
+        ret['ABAA'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p2_population] * (1 - freq_dicc[g_state['args'].p3_population]) * (1 - freq_dicc[g_state['args'].p4_population])
+        ret['ABAA_HOM'] += (1 - freq_dicc[g_state['args'].p1_population]) * freq_dicc[g_state['args'].p3_population] * (1 - freq_dicc[g_state['args'].p3_population]) * (1 - freq_dicc[g_state['args'].p4_population])
+
+    return ret
+
+
+def to_genotypes(p1_idx, p2_idx, p3_idx, p4_idx, spline, random_chr):
+    p1_gt = spline[g_state['pop_dicc'][g_state['args'].p1_population]['IDX'][p1_idx]][random_chr]
+    p2_gt = spline[g_state['pop_dicc'][g_state['args'].p2_population]['IDX'][p2_idx]][random_chr]
+    p3_gt = spline[g_state['pop_dicc'][g_state['args'].p3_population]['IDX'][p3_idx]][random_chr]
+    p4_gt = spline[g_state['pop_dicc'][g_state['args'].p4_population]['IDX'][p4_idx]][random_chr]
+    return f'{p1_gt}{p2_gt}{p3_gt}{p4_gt}', p1_gt, p2_gt, p3_gt, p4_gt
+
+
+def pattern_from_sampling(spline, random_chr):
+    ret = {}
+    # For every quartet...
+    for p1_idx, p2_idx, p3_idx, p4_idx in itertools.product(
+        range(len(g_state['pop_dicc'][g_state['args'].p1_population]['IND'])),
+        range(len(g_state['pop_dicc'][g_state['args'].p2_population]['IND'])),
+        range(len(g_state['pop_dicc'][g_state['args'].p3_population]['IND'])),
+        range(len(g_state['pop_dicc'][g_state['args'].p4_population]['IND']))):
+        # Initialize the quartet.
+        quartet, p1_gt, p2_gt, p3_gt, p4_gt = to_genotypes(p1_idx, p2_idx, p3_idx, p4_idx, spline, random_chr)
+        # Fill the dictionary to store site patterns.
+        if quartet in ret:
+            # Add 1 to weight since we're seeing this quartet again
+            ret[quartet][0] += 1
         else:
-            # Compose the error message.
-            err = 'QC: {0} from {1} does not belong to a focal population...'.format(ind, pop)
-            # Log the error.
-            log_file.write(err+'\n')
+            # Store weight, site pattern info.
+            ret[quartet] = [1, {
+                'ABBA': 0, 'ABBA_HOM': 0,
+                'BABA': 0, 'BABA_HOM': 0,
+                'BAAA': 0, 'BAAA_HOM': 0,
+                'ABAA': 0, 'ABAA_HOM': 0,
+            }]
+
+            # Determine the site pattern.
+            if ((p1_gt == '0') and (p2_gt == '1') and (p3_gt == '1') and (p4_gt == '0')):
+                ret[quartet][1]['ABBA'] += 1
+                ret[quartet][1]['ABBA_HOM'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '0') and (p3_gt == '0') and (p4_gt == '1')):
+                ret[quartet][1]['ABBA'] += 1
+                ret[quartet][1]['ABBA_HOM'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '0') and (p3_gt == '1') and (p4_gt == '0')):
+                ret[quartet][1]['ABBA_HOM'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '1') and (p3_gt == '0') and (p4_gt == '1')):
+                ret[quartet][1]['ABBA_HOM'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '0') and (p3_gt == '1') and (p4_gt == '0')):
+                ret[quartet][1]['BABA'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '1') and (p3_gt == '0') and (p4_gt == '1')):
+                ret[quartet][1]['BABA'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '0') and (p3_gt == '0') and (p4_gt == '0')):
+                ret[quartet][1]['BAAA'] += 1
+                ret[quartet][1]['BAAA_HOM'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '1') and (p3_gt == '1') and (p4_gt == '1')):
+                ret[quartet][1]['BAAA'] += 1
+                ret[quartet][1]['BAAA_HOM'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '1') and (p3_gt == '0') and (p4_gt == '0')):
+                ret[quartet][1]['BAAA_HOM'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '0') and (p3_gt == '1') and (p4_gt == '1')):
+                ret[quartet][1]['BAAA_HOM'] += 1
+            elif ((p1_gt == '0') and (p2_gt == '1') and (p3_gt == '0') and (p4_gt == '0')):
+                ret[quartet][1]['ABAA'] += 1
+            elif ((p1_gt == '1') and (p2_gt == '0') and (p3_gt == '1') and (p4_gt == '1')):
+                ret[quartet][1]['ABAA'] += 1
+            else:
+                continue
+
+    return ret
 
 
-# [2] Estimate site patterns.
+def line_worker(line):
+    # Intialize a dictinary to store site patterns by position.
+    ret = {}
+    # Split the header line by tabs.
+    spline = line.split()
+    # Grab the refernce and alternative alleles.
+    alleles = [spline[3], spline[4]]
+    # Grab the poistion.
+    pos = int(spline[1])
+    # If the site is monomorphic...
+    if '.' in alleles:
+        # Grab the chromosome.
+        chrom = spline[0]
+        # Compose the error message.
+        err = 'QC: pos {0} on chrom {1} is invariant, continuing to the next site...'.format(pos, chrom)
+        # Log the error.
+        log_file.write(err+'\n')
+        # Continue to the next line...
+        return
+    # Else-if the site contains a structural or multiallelic variant...
+    elif (len(alleles[0]) + len(alleles[1])) != 2:
+        # Grab the chromosome.
+        chrom = spline[0]
+        # Compose the error message.
+        err = 'QC: pos {0} on chrom {1} is not a bi-allelic snp, continuing to the next site...'.format(pos, chrom)
+        # Log the error.
+        log_file.write(err+'\n')
+        # Continue to the next line...
+        return
+    # Else-if site patterns are to be calculated from derived allele frequencies...
+    elif g_state['args'].frequency:
+        # Intialize a dictionary to store site patterns for this position.
+        return (pos, pattern_from_derived(spline))
+    # Else...
+    else:
+        # Build the dictionary.
+        return (pos, pattern_from_sampling(spline, g_state['all_lines'][pos][1]))
 
-# Initialize the freq_flag.
-freq_flag = args.frequency == 'True'
-# If the file is gzipped...
-if args.vcf_file.endswith('.gz'):
-    # Intialize the gzipped vcf file.
-    input_file = gzip.open(args.vcf_file, 'rt')
-# Else...
-else:
-    # Intialize the vcf file.
-    input_file = open(args.vcf_file, 'rt')
-# Open the input file.
-with input_file as data:
+
+def estimate_site_patterns():
+    # If the file is gzipped...
+    if g_state['args'].vcf_file.endswith('.gz'):
+        # Intialize the gzipped vcf file.
+        data = gzip.open(g_state['args'].vcf_file, 'rt')
+    # Else...
+    else:
+        # Intialize the vcf file.
+        data = open(g_state['args'].vcf_file, 'rt')
+    all_lines = data.readlines()
+    data.close()
+
     # For every line in the vcf file...
-    for line in data:
+    line_ctr = 0
+    while all_lines[line_ctr].startswith('#'):
+        line = all_lines[line_ctr]
+        line_ctr += 1
         # If the current line is a part of the meta information...
         if line.startswith('##'):
             # Continue to the next line in the vcf file.
             continue
         # Else-if the current line is the header line...
         elif line.startswith('#'):
-            # Intialize the fatal error tracker.
-            fatal = False
             # Split the header line by tabs.
             header = line.split()
             # For every focal population...
-            for key in pop_dicc.keys():
+            for key in g_state['pop_dicc'].keys():
                 # For every sample in the current population...
-                for ind in pop_dicc[key]['IND']:
+                for ind in g_state['pop_dicc'][key]['IND']:
                     # If the sample appears in the header line...
                     if ind in header:
                         # Append the sample's column index w/in the vcf file.
-                        pop_dicc[key]['IDX'].append(header.index(ind))
+                        g_state['pop_dicc'][key]['IDX'].append(header.index(ind))
                     # Else...
                     else:
                         # Remove the sample from the sample list.
-                        pop_dicc[key]['IND'].remove(ind)
+                        g_state['pop_dicc'][key]['IND'].remove(ind)
                         # Compose the error message.
                         err = 'QC: {0} from {1} does not appear in the vcf header...'.format(ind, key)
                         # Log the error.
                         log_file.write(err+'\n')
                 # If the current population has no samples in the vcf file...
-                if len(pop_dicc[key]['IDX']) == 0:
+                if len(g_state['pop_dicc'][key]['IDX']) == 0:
                     # Compose the error message.
                     err = 'FATAL: no {0} samples appear in the vcf header...'.format(key)\
                     +' make sure samples in the meta data file are identical to how they'\
                     +' appear in the vcf header...'
                     # Log the error.
                     log_file.write(err+'\n')
-                    # Record the fatal error.
-                    fatal = True
-            # If a fatal error occured...
-            if fatal:
-                # Stop all calculations.
-                break
-            # Else...
-            else:
-                # Intialize a dictinary to store site patterns by position.
-                site_patterns = {}
-        # Else...
-        else:
-            # Split the header line by tabs.
+                    sys.exit(1)
+
+    # Store line information if building site patterns via sampling
+    if not g_state['args'].frequency:
+        g_state['all_lines'] = {}
+        for line in all_lines[line_ctr:]:
             spline = line.split()
-            # Grab the refernce and alternative alleles.
-            alleles = [spline[3], spline[4]]
-            # If the site is monomorphic...
-            if '.' in alleles:
-                # Grab the chromosome and position.
-                chrom = spline[0]
-                pos = spline[1]
-                # Compose the error message.
-                err = 'QC: pos {0} on chrom {1} is invariant, continuing to the next site...'.format(pos, chrom)
-                # Log the error.
-                log_file.write(err+'\n')
-                # Continue to the next line...
-                continue
-            # Else-if the site contains a structural or multiallelic variant...
-            elif (len(alleles[0]) + len(alleles[1])) != 2:
-                # Grab the chromosome and position.
-                chrom = spline[0]
-                pos = spline[1]
-                # Compose the error message.
-                err = 'QC: pos {0} on chrom {1} is not a bi-allelic snp, continuing to the next site...'.format(pos, chrom)
-                # Log the error.
-                log_file.write(err+'\n')
-                # Continue to the next line...
-                continue
-            # Else-if site patterns are to be calculated from derived allele frequencies...
-            elif freq_flag:
-                # Grab the poistion.
-                pos = int(spline[1])
-                # Intialize a dictionary to store site patterns for this position.
-                site_patterns[pos] = {
-                    'ABBA': 0, 'ABBA_HOM': 0,
-                    'BABA': 0, 'BABA_HOM': 0,
-                    'BAAA': 0, 'BAAA_HOM': 0,
-                    'ABAA': 0, 'ABAA_HOM': 0,
-                }
-                # Intialize a alternative allele frequency dictionary.
-                freq_dicc = {}
-                # For every focal population...
-                for key in pop_dicc.keys():
-                    # Intialize an alternative allele counter.
-                    alt_allele_counter = 0
-                    # For every individual in the population...
-                    for idx in pop_dicc[key]['IDX']:
-                        # Count the number of alternative alleles.
-                        alt_allele_counter += spline[idx][0:3].count('1')
-                    # Determine the alternative allele frequency.
-                    freq_dicc[key] = float(alt_allele_counter) / (len(pop_dicc[key]['IDX']) * 2)
-                # If the ancestral allele is the refernce allele...
-                if freq_dicc[args.p4_population] == 0.0:
-                    # Calculate site patterns.
-                    site_patterns[pos]['ABBA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * freq_dicc[args.p3_population]
-                    site_patterns[pos]['ABBA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * freq_dicc[args.p3_population]
-                    site_patterns[pos]['BABA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * freq_dicc[args.p3_population]
-                    site_patterns[pos]['BABA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * freq_dicc[args.p3_population]
-                    site_patterns[pos]['BAAA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * (1 - freq_dicc[args.p3_population])
-                    site_patterns[pos]['BAAA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p3_population])
-                    site_patterns[pos]['ABAA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * (1 - freq_dicc[args.p3_population])
-                    site_patterns[pos]['ABAA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p3_population])
-                # Else-if the ancestral allele is the alternative allele...
-                elif freq_dicc[args.p4_population] == 1.0:
-                    # Calculate site patterns.
-                    site_patterns[pos]['ABBA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * (1 - freq_dicc[args.p3_population])
-                    site_patterns[pos]['ABBA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p3_population])
-                    site_patterns[pos]['BABA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * (1 - freq_dicc[args.p3_population])
-                    site_patterns[pos]['BABA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p3_population])
-                    site_patterns[pos]['BAAA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * freq_dicc[args.p3_population]
-                    site_patterns[pos]['BAAA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * freq_dicc[args.p3_population]
-                    site_patterns[pos]['ABAA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * freq_dicc[args.p3_population]
-                    site_patterns[pos]['ABAA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * freq_dicc[args.p3_population]
-                # Else...
-                else:
-                    # Calculate site patterns.
-                    site_patterns[pos]['ABBA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
-                    site_patterns[pos]['ABBA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
-                    site_patterns[pos]['BABA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
-                    site_patterns[pos]['BABA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
-                    site_patterns[pos]['BAAA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
-                    site_patterns[pos]['BAAA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
-                    site_patterns[pos]['ABAA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
-                    site_patterns[pos]['ABAA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
-            # Else...
-            else:
-                # Grab the poistion.
-                pos = int(spline[1])
-                # Build the dictionary.
-                site_patterns[pos] = {}
-                # For every P1 sample...
-                for p1 in pop_dicc[args.p1_population]['IND']:
-                    # For every P2 sample...
-                    for p2 in pop_dicc[args.p2_population]['IND']:
-                        # For every P3 sample...
-                        for p3 in pop_dicc[args.p3_population]['IND']:
-                            # For every P4 sample...
-                            for p4 in pop_dicc[args.p4_population]['IND']:
-                                # Intialize the quartet.
-                                quartet = '{0}-{1}-{2}-{3}'.format(p1, p2, p3, p4)
-                                # Fill the dictionary to store site patterns.
-                                site_patterns[pos][quartet] = {
-                                    'ABBA': 0, 'ABBA_HOM': 0,
-                                    'BABA': 0, 'BABA_HOM': 0,
-                                    'BAAA': 0, 'BAAA_HOM': 0,
-                                    'ABAA': 0, 'ABAA_HOM': 0,
-                                }
-                # Intialize RNG values.
-                rng_vals = [0, 2]
-                # Randomly select a chromosome to sample.
-                random_chr = random.choice(rng_vals)
-                # For every P1 sample...
-                for p1_idx in range(len(pop_dicc[args.p1_population]['IND'])):
-                    # For every P2 sample...
-                    for p2_idx in range(len(pop_dicc[args.p2_population]['IND'])):
-                        # For every P3 sample...
-                        for p3_idx in range(len(pop_dicc[args.p3_population]['IND'])):
-                            # For every P4 sample...
-                            for p4_idx in range(len(pop_dicc[args.p4_population]['IND'])):
-                                # Extract the samples.
-                                p1_ind = pop_dicc[args.p1_population]['IND'][p1_idx]
-                                p2_ind = pop_dicc[args.p2_population]['IND'][p2_idx]
-                                p3_ind = pop_dicc[args.p3_population]['IND'][p3_idx]
-                                p4_ind = pop_dicc[args.p4_population]['IND'][p4_idx]
-                                # Construct the quartet.
-                                quartet = '{0}-{1}-{2}-{3}'.format(p1_ind, p2_ind, p3_ind, p4_ind)
-                                # Randomly sample an allele for each focal sample.
-                                p1 = spline[pop_dicc[args.p1_population]['IDX'][p1_idx]][random_chr]
-                                p2 = spline[pop_dicc[args.p2_population]['IDX'][p2_idx]][random_chr]
-                                p3 = spline[pop_dicc[args.p3_population]['IDX'][p3_idx]][random_chr]
-                                p4 = spline[pop_dicc[args.p4_population]['IDX'][p4_idx]][random_chr]
-                                # Determine the site pattern.
-                                if ((p1 == '0') and (p2 == '1') and (p3 == '1') and (p4 == '0')):
-                                    site_patterns[pos][quartet]['ABBA'] += 1
-                                    site_patterns[pos][quartet]['ABBA_HOM'] += 1
-                                elif ((p1 == '1') and (p2 == '0') and (p3 == '0') and (p4 == '1')):
-                                    site_patterns[pos][quartet]['ABBA'] += 1
-                                    site_patterns[pos][quartet]['ABBA_HOM'] += 1
-                                elif ((p1 == '0') and (p2 == '0') and (p3 == '1') and (p4 == '0')):
-                                    site_patterns[pos][quartet]['ABBA_HOM'] += 1
-                                elif ((p1 == '1') and (p2 == '1') and (p3 == '0') and (p4 == '1')):
-                                    site_patterns[pos][quartet]['ABBA_HOM'] += 1
-                                elif ((p1 == '1') and (p2 == '0') and (p3 == '1') and (p4 == '0')):
-                                    site_patterns[pos][quartet]['BABA'] += 1
-                                elif ((p1 == '0') and (p2 == '1') and (p3 == '0') and (p4 == '1')):
-                                    site_patterns[pos][quartet]['BABA'] += 1
-                                elif ((p1 == '1') and (p2 == '0') and (p3 == '0') and (p4 == '0')):
-                                    site_patterns[pos][quartet]['BAAA'] += 1
-                                    site_patterns[pos][quartet]['BAAA_HOM'] += 1
-                                elif ((p1 == '0') and (p2 == '1') and (p3 == '1') and (p4 == '1')):
-                                    site_patterns[pos][quartet]['BAAA'] += 1
-                                    site_patterns[pos][quartet]['BAAA_HOM'] += 1
-                                elif ((p1 == '1') and (p2 == '1') and (p3 == '0') and (p4 == '0')):
-                                    site_patterns[pos][quartet]['BAAA_HOM'] += 1
-                                elif ((p1 == '0') and (p2 == '0') and (p3 == '1') and (p4 == '1')):
-                                    site_patterns[pos][quartet]['BAAA_HOM'] += 1
-                                elif ((p1 == '0') and (p2 == '1') and (p3 == '0') and (p4 == '0')):
-                                    site_patterns[pos][quartet]['ABAA'] += 1
-                                elif ((p1 == '1') and (p2 == '0') and (p3 == '1') and (p4 == '1')):
-                                    site_patterns[pos][quartet]['ABAA'] += 1
-                                else:
-                                    continue
+            pos = int(spline[1])
+            g_state['all_lines'][pos] = [spline, random.choice([0, 2])]
+
+    # Process the rest of the lines in parallel
+    site_patterns = {}
+    pool = mp.Pool(min(mp.cpu_count(), g_state['args'].threads))
+    for pos, dicc in pool.map(line_worker, all_lines[line_ctr:]):
+        site_patterns[pos] = dicc
+    pool.close()
+
+    return site_patterns
 
 
-# [3] Perform bootstrapping.
-
-# Intialize a header list.
-header_list = [
-    'P1', 'P2', 'P3', 'P4',
-    'ABBA', 'BABA', 'BAAA', 'ABAA',
-    'ABBA_HOM', 'BABA_HOM', 'BAAA_HOM', 'ABAA_HOM',
-    'D', 'Danc', 'D+', 'fhom', 'fanc', 'f+', 'BS_REP',
-]
-# Write the header list to the results file.
-out_file.write('\t'.join(header_list)+'\n')
-# Determine the number of blocks needed to build a bootstrapped contig.
-blocks = args.contig_length // args.block_size
-# For every bootstrap replicate...
-for rep in range(args.replicates):
-    # Intialize a list to store start positions.
-    starts = []
-    # For every block.
-    for _ in range(blocks):
-        # Generate a starting position.
-        starts.append(random.randint(1, args.contig_length-args.block_size))
+def bootstrap_worker(rep):
+    # Intialize a list with starting positions for every block.
+    starts = [random.randint(1, g_state['args'].contig_length-g_state['args'].block_size) for _ in range(g_state['blocks'])]
     # Sort the starting positions.
     starts = sorted(starts)
-    # Intialzie a dictioanry to store position weights.
-    pos_weight_dicc = {}
+    # Initialize a dictioanry to store position weights.
+    pos_weight_dicc = defaultdict(int)
     # For every start position...
     for start in starts:
         # For every position covered by the start and end position...
-        for pos in range(start, start+args.block_size):
-            # If the current position is already known...
-            if pos in pos_weight_dicc:
-                # Add an additional weight.
-                pos_weight_dicc[pos] += 1
-            # Else...
-            else:
-                # Append the position to the dictionary.
-                pos_weight_dicc[pos] = 1
-    # Determine which bootstrapped positions overlap with the observed positions.
-    overlap_list = list(set(list(site_patterns.keys())) & set(list(pos_weight_dicc.keys())))
+        for pos in range(start, start+g_state['args'].block_size):
+            # We only want overlaps.
+            if pos not in g_state['site_patterns'].keys():
+                continue
+            # Add an additional weight.
+            pos_weight_dicc[pos] += 1
     # If site patterns are to be calculated from derived allele frequencies...
-    if freq_flag:
+    if g_state['args'].frequency:
         # Intialize a dictionary to store bootstrapped site patterns.
         bootstrap_rep = {
             'ABBA': 0, 'ABBA_HOM': 0,
@@ -380,14 +375,10 @@ for rep in range(args.replicates):
             'BAAA': 0, 'BAAA_HOM': 0,
             'ABAA': 0, 'ABAA_HOM': 0,
         }
-        # If there are overlapping positions...
-        if len(overlap_list) > 0:
-            # For every overlapping position...
-            for pos in overlap_list:
-                # For every site pattern...
-                for key in bootstrap_rep.keys():
-                    # Update the bootstrapped dictionary.
-                    bootstrap_rep[key] += (site_patterns[pos][key] * pos_weight_dicc[pos])
+        # For every overlapping position and site pattern...
+        for pos, key in itertools.product(pos_weight_dicc.keys(), bootstrap_rep.keys()):
+            # Update the bootstrapped dictionary.
+            bootstrap_rep[key] += (g_state['site_patterns'][pos][key] * pos_weight_dicc[pos])
         # Calculate numerators and denonimators for detection metrics.
         d_num = (bootstrap_rep['ABBA'] - bootstrap_rep['BABA'])
         d_den = (bootstrap_rep['ABBA'] + bootstrap_rep['BABA'])
@@ -452,7 +443,8 @@ for rep in range(args.replicates):
             bootstrap_rep['f+'] = fplus_num / float(fplus_den)
         # Intialize the results list.
         results_list = [
-            args.p1_population, args.p2_population, args.p3_population, args.p4_population,
+            g_state['args'].p1_population, g_state['args'].p2_population,
+            g_state['args'].p3_population, g_state['args'].p4_population,
             str(bootstrap_rep['ABBA']), str(bootstrap_rep['BABA']),
             str(bootstrap_rep['BAAA']), str(bootstrap_rep['ABAA']),
             str(bootstrap_rep['ABBA_HOM']), str(bootstrap_rep['BABA_HOM']),
@@ -461,37 +453,38 @@ for rep in range(args.replicates):
             str(bootstrap_rep['fhom']), str(bootstrap_rep['fanc']), str(bootstrap_rep['f+']), str(rep),
         ]
         # Write the results list to the results file.
-        out_file.write('\t'.join(results_list)+'\n')
+        return '\t'.join(results_list) + '\n'
     # Else...
     else:
         # Intialize a dictionary to store bootstrapped site patterns.
         bootstrap_rep = {}
-        # For every P1 sample...
-        for p1 in pop_dicc[args.p1_population]['IND']:
-            # For every P2 sample...
-            for p2 in pop_dicc[args.p2_population]['IND']:
-                # For every P3 sample...
-                for p3 in pop_dicc[args.p3_population]['IND']:
-                    # For every P4 sample...
-                    for p4 in pop_dicc[args.p4_population]['IND']:
-                        # Intialize the quartet.
-                        quartet = '{0}-{1}-{2}-{3}'.format(p1, p2, p3, p4)
-                        # Fill the dictionary to store site patterns.
-                        bootstrap_rep[quartet] = {
-                            'ABBA': 0, 'ABBA_HOM': 0,
-                            'BABA': 0, 'BABA_HOM': 0,
-                            'BAAA': 0, 'BAAA_HOM': 0,
-                            'ABAA': 0, 'ABAA_HOM': 0,
-                        }
-        # If there are overlapping positions...
-        if len(overlap_list) > 0:
-            # For every overlapping position...
-            for pos in overlap_list:
-                # For every quartet...
-                for quartet in bootstrap_rep.keys():
-                    # For every site pattern...
-                    for key in bootstrap_rep[quartet].keys():
-                        bootstrap_rep[quartet][key] += (site_patterns[pos][quartet][key] * pos_weight_dicc[pos])
+        # For every quartet...
+        for p1_idx, p2_idx, p3_idx, p4_idx in itertools.product(
+            range(len(g_state['pop_dicc'][g_state['args'].p1_population]['IND'])),
+            range(len(g_state['pop_dicc'][g_state['args'].p2_population]['IND'])),
+            range(len(g_state['pop_dicc'][g_state['args'].p3_population]['IND'])),
+            range(len(g_state['pop_dicc'][g_state['args'].p4_population]['IND']))):
+            # Get sample IDs
+            p1_ind = g_state['pop_dicc'][g_state['args'].p1_population]['IND'][p1_idx]
+            p2_ind = g_state['pop_dicc'][g_state['args'].p2_population]['IND'][p2_idx]
+            p3_ind = g_state['pop_dicc'][g_state['args'].p3_population]['IND'][p3_idx]
+            p4_ind = g_state['pop_dicc'][g_state['args'].p4_population]['IND'][p4_idx]
+            # Fill the dictionary to store site patterns.
+            quartet_id = (p1_ind, p2_ind, p3_ind, p4_ind)
+            bootstrap_rep[quartet_id] = {
+                'ABBA': 0, 'ABBA_HOM': 0,
+                'BABA': 0, 'BABA_HOM': 0,
+                'BAAA': 0, 'BAAA_HOM': 0,
+                'ABAA': 0, 'ABAA_HOM': 0,
+            }
+
+            for pos in pos_weight_dicc.keys():
+                # Intialize the quartet using the same data in line_worker().
+                quartet, p1_gt, p2_gt, p3_gt, p4_gt = to_genotypes(p1_idx, p2_idx, p3_idx, p4_idx,
+                    g_state['all_lines'][pos][0], g_state['all_lines'][pos][1])
+                for key in bootstrap_rep[quartet_id].keys():
+                    bootstrap_rep[quartet_id][key] += g_state['site_patterns'][pos][quartet][1][key] * pos_weight_dicc[pos] * g_state['site_patterns'][pos][quartet][0]
+
         # For every quartet...
         for key in bootstrap_rep.keys():
             # Calculate numerators and denonimators for detection metrics.
@@ -557,7 +550,7 @@ for rep in range(args.replicates):
                 # Calculate f+.
                 bootstrap_rep[key]['f+'] = fplus_num / float(fplus_den)
             # Unpack the samples in the quartet.
-            p1, p2, p3, p4 = key.split('-')
+            p1, p2, p3, p4 = key
             # Intialize the results list.
             results_list = [
                 p1, p2, p3, p4,
@@ -565,15 +558,50 @@ for rep in range(args.replicates):
                 str(bootstrap_rep[key]['BAAA']), str(bootstrap_rep[key]['ABAA']),
                 str(bootstrap_rep[key]['ABBA_HOM']), str(bootstrap_rep[key]['BABA_HOM']),
                 str(bootstrap_rep[key]['BAAA_HOM']), str(bootstrap_rep[key]['ABAA_HOM']),
-                str(bootstrap_rep[key]['D']), str(bootstrap_rep[key]['Danc']), str(bootstrap_rep[key]['D+']),
-                str(bootstrap_rep[key]['fhom']), str(bootstrap_rep[key]['fanc']), str(bootstrap_rep[key]['f+']), str(rep),
+                str(bootstrap_rep[key]['D']), str(bootstrap_rep[key]['Danc']),
+                str(bootstrap_rep[key]['D+']), str(bootstrap_rep[key]['fhom']),
+                str(bootstrap_rep[key]['fanc']), str(bootstrap_rep[key]['f+']), str(rep),
             ]
             # Write the results list to the results file.
-            out_file.write('\t'.join(results_list)+'\n')
+            return '\t'.join(results_list) + '\n'
 
-        
-# [4] Close output files.
 
-# Close the results and log files.
-out_file.close()
-log_file.close()
+def main():
+    # [0] Initialize
+    g_state['args'] = parse_arguments()
+    # Intailzie the output file refix.
+    prefix = g_state['args'].path+'{0}_{1}_{2}_{3}_'.format(g_state['args'].p1_population,
+        g_state['args'].p2_population, g_state['args'].p3_population, g_state['args'].p4_population)
+    # Intialize the output files.
+    out_file = open(prefix+'bootstraps.txt', 'w')
+    log_file = open(prefix+'bootstraps_log.txt', 'w')
+
+    # [1] Extract the meta data.
+    g_state['pop_dicc'] = build_pop_dicc()
+
+    # [2] Estimate site patterns.
+    g_state['site_patterns'] = estimate_site_patterns()
+
+    # [3] Perform bootstrapping.
+    # Intialize a header list.
+    header_list = [
+        'P1', 'P2', 'P3', 'P4',
+        'ABBA', 'BABA', 'BAAA', 'ABAA',
+        'ABBA_HOM', 'BABA_HOM', 'BAAA_HOM', 'ABAA_HOM',
+        'D', 'Danc', 'D+', 'fhom', 'fanc', 'f+', 'BS_REP',
+    ]
+    # Write the header list to the results file.
+    out_file.write('\t'.join(header_list)+'\n')
+    # Determine the number of blocks needed to build a bootstrapped contig.
+    g_state['blocks'] = g_state['args'].contig_length // g_state['args'].block_size
+    # For every bootstrap replicate...
+    pool = mp.Pool(min(mp.cpu_count(), g_state['args'].threads))
+    out_file.writelines(pool.map(bootstrap_worker, range(g_state['args'].replicates)))
+    pool.close()
+
+    # [4] Close output files.
+    out_file.close()
+    log_file.close()
+
+if __name__ == "__main__":
+    main()
