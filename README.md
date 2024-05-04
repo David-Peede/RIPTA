@@ -6,10 +6,10 @@ If you have any questions or feature requests please leave a detailed issue. If 
 
 
 
-## `observed_values.py`
+## `site_patterns.py`
 
 ```bash
-usage: observed_values.py [-h] -v VCF_FILE -m META_DATA -f {True,False} -p1
+usage: site_patterns.py [-h] -v VCF_FILE -m META_DATA -f {True,False} -p1
                         P1_POPULATION -p2 P2_POPULATION -p3 P3_POPULATION -p4
                         P4_POPULATION [-p PATH]
 
@@ -39,7 +39,8 @@ optional arguments:
                         Population in the meta data file to use as P3 for
                         comparisons (ie the outrgroup population used for
                         polarization).
-  -p PATH, --path PATH  Path for results and qc file (default = current
+  -p PATH, --path PATH
+                        Path for results and qc file (default = current
                         working directory).
 ```
 
@@ -51,7 +52,7 @@ optional arguments:
 usage: bootstrapping.py [-h] -v VCF_FILE -m META_DATA -f {True,False} -p1
                         P1_POPULATION -p2 P2_POPULATION -p3 P3_POPULATION -p4
                         P4_POPULATION -cl CONTIG_LENGTH -bs BLOCK_SIZE -r
-                        REPLICATES [-p PATH]
+                        REPLICATES [-p PATH] [-t NUM_THREADS]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -86,8 +87,11 @@ optional arguments:
                         bootstrapped contigs.
   -r REPLICATES, --replicates REPLICATES
                         Number of bootstrapped replicates to perform.
-  -p PATH, --path PATH  Path for results and qc file (default = current
+  -p PATH, --path PATH
+                        Path for results and qc file (default = current
                         working directory).
+  -t NUM_THREADS, --threads NUM_THREADS
+                        Number of threads to use (default = 1).
 ```
 
 
@@ -97,25 +101,25 @@ optional arguments:
 In the `tutorial` directory I have supplied a pre-filtered VCF file of chromosome 22 for the YRI, CEU, and Altai Neanderthal individuals along with the ancestral allele calls from the EPO pipeline encoded as an Ancestor individual. To calculate site patterns and all introgression metrics based on derived allele frequencies you can run:
 
 ```bash
-python observed_values.py -v ./tutorial/tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_freqs.txt -f True -p1 YRI -p2 CEU -p3 NEA -p4 ANC -p ./tutorial/freq_results/
+python site_patterns.py -v ./tutorial/tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_freqs.txt -f True -p1 YRI -p2 CEU -p3 NEA -p4 ANC -p ./tutorial/freq_results/
 ```
 
 and to calculate site patterns and all introgression metrics based on individual trios you can run:
 
 ```bash
-python observed_values.py -v ./tutorial.tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_trios.txt -f False -p1 YRI -p2 CEU -p3 NEA -p4 ANC -p ./tutorial/trio_results/
+python site_patterns.py -v ./tutorial.tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_trios.txt -f False -p1 YRI -p2 CEU -p3 NEA -p4 ANC -p ./tutorial/trio_results/
 ```
 
 To assess significance by bootstrapping based on estimates from derived allele frequencies you can run:
 
 ```bash
-python bootstrapping.py -v ./tutorial/tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_freqs.txt --frequency -p1 YRI -p2 CEU -p3 NEA -p4 ANC -cl 51304566 -bs 10_000_000 -r 100 -p ./tutorial/freq_results/
+python bootstrapping.py -v ./tutorial/tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_freqs.txt --frequency -p1 YRI -p2 CEU -p3 NEA -p4 ANC -cl 51304566 -bs 10_000_000 -r 100 -t 10 -p ./tutorial/freq_results/
 ```
 
 and to perform bootstrapping on individual trios you can run:
 
 ```bash
-python bootstrapping.py -v ./tutorial.tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_trios.txt -p1 YRI -p2 CEU -p3 NEA -p4 ANC -cl 51304566 -bs 10_000_000 -r 100 -p ./tutorial/trio_results/
+python bootstrapping.py -v ./tutorial.tutorial_data.vcf.gz -m ./tutorial/tutorial_meta_data_trios.txt -p1 YRI -p2 CEU -p3 NEA -p4 ANC -cl 51304566 -bs 10_000_000 -r 100 -t 10 -p ./tutorial/trio_results/
 ```
 
-Both `observed_values.py` and `bootstrapping.py` expect a filtered VCF file and will output a results and a log file in the directory you specify with the `-p` option.
+Both `site_patterns.py` and `bootstrapping.py` expect a filtered VCF file and will output a results and a log file in the directory you specify with the `-p` option.
