@@ -98,7 +98,7 @@ with open(args.meta_data, 'r') as pop_data:
 
 # [2] Estimate site patterns.
 
-# Initialize the freq_flag.
+# Initialize the freq_flag. If GP is used, then the freq_flag is also set to True.
 freq_flag = args.frequency == 'True' or args.GP
 # If the file is gzipped...
 if args.vcf_file.endswith('.gz'):
@@ -220,13 +220,17 @@ for line in data:
                         alt_allele_counter += spline[idx][0:3].count('1')
                 else:
                     posGP=-1
+                    #Determine which field corresponds to GP
                     if 'GP' in spline[8].split(':'):
                     	posGP=spline[8].split(':').index('GP')
                     for idx in pop_dicc[key]['IDX']:
                         sspline = spline[idx].split(':')
+                        #Check if GP is available for the sample
                         if posGP!=-1 and sspline[posGP]!='.':
+                        #If GP is available, us it as a proxy for allele frequency
                             alt_allele_counter += float(sspline[posGP].split(',')[2])*2+float(sspline[posGP].split(',')[1])
                         else:
+                        # Count the number of alternative alleles.
                             alt_allele_counter += float(spline[idx][0:3].count('1'))
 		       	   
 		    
