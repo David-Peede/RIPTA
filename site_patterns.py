@@ -214,7 +214,7 @@ for line in data:
                 # Intialize an alternative allele counter.
                 alt_allele_counter = 0
                 # For every individual in the population...
-                if not args.GP: #GP
+                if not args.GP: 
                     for idx in pop_dicc[key]['IDX']:
 		        # Count the number of alternative alleles.
                         alt_allele_counter += spline[idx][0:3].count('1')
