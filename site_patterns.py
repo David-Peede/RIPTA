@@ -54,6 +54,9 @@ parser.add_argument(
     action='store', default='./',
     help='Path for results and qc file (default = current working directory).',
 )
+
+parser.add_argument("-GP",help="Uses GP when available", action='store_true', default = False)
+
 args = parser.parse_args()
 
 # [0] Intialize output files.
@@ -96,7 +99,7 @@ with open(args.meta_data, 'r') as pop_data:
 # [2] Estimate site patterns.
 
 # Initialize the freq_flag.
-freq_flag = args.frequency == 'True'
+freq_flag = args.frequency == 'True' or args.GP
 # If the file is gzipped...
 if args.vcf_file.endswith('.gz'):
     # Intialize the gzipped vcf file.
@@ -211,10 +214,24 @@ for line in data:
                 # Intialize an alternative allele counter.
                 alt_allele_counter = 0
                 # For every individual in the population...
-                for idx in pop_dicc[key]['IDX']:
-                    # Count the number of alternative alleles.
-                    alt_allele_counter += spline[idx][0:3].count('1')
-                # Determine the alternative allele frequency.
+                if not args.GP: #GP
+                    for idx in pop_dicc[key]['IDX']:
+		        # Count the number of alternative alleles.
+                        alt_allele_counter += spline[idx][0:3].count('1')
+                else:
+                    posGP=-1
+                    if 'GP' in spline[8].split(':'):
+                    	posGP=spline[8].split(':').index('GP')
+                    for idx in pop_dicc[key]['IDX']:
+                        sspline = spline[idx].split(':')
+                        if posGP!=-1 and sspline[posGP]!='.':
+                            alt_allele_counter += float(sspline[posGP].split(',')[2])*2+float(sspline[posGP].split(',')[1])
+                        else:
+                            alt_allele_counter += float(spline[idx][0:3].count('1'))
+		       	   
+		    
+			
+		# Determine the alternative allele frequency.
                 freq_dicc[key] = float(alt_allele_counter) / (len(pop_dicc[key]['IDX']) * 2)
             # If the ancestral allele is the refernce allele...
             if freq_dicc[args.p4_population] == 0.0:
