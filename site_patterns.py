@@ -227,7 +227,7 @@ for line in data:
                         sspline = spline[idx].split(':')
                         #Check if GP is available for the sample
                         if posGP!=-1 and sspline[posGP]!='.':
-                        #If GP is available, us it as a proxy for allele frequency
+                        #If GP is available, use it as a proxy for allele frequency
                             alt_allele_counter += float(sspline[posGP].split(',')[2])*2+float(sspline[posGP].split(',')[1])
                         else:
                         # Count the number of alternative alleles.
