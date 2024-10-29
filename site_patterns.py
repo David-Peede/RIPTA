@@ -55,7 +55,19 @@ parser.add_argument(
     help='Path for results and qc file (default = current working directory).',
 )
 
+parser.add_argument(
+    '-sep', required=False,
+    type=str, action='store', default='',
+    help='Population for which the statistics are computed for each individuals separatly. The option can only be used if --frequency is True.',
+)
+
 parser.add_argument("-GP",help="Uses GP when available", action='store_true', default = False)
+
+parser.add_argument(
+    '-raf', required=False,
+    action='store', default='0',
+    help='Minimum Reference Allele Frequency requiered to keep the snp.',
+)
 
 args = parser.parse_args()
 
@@ -100,6 +112,17 @@ with open(args.meta_data, 'r') as pop_data:
 
 # Initialize the freq_flag. If GP is used, then the freq_flag is also set to True.
 freq_flag = args.frequency == 'True' or args.GP
+
+#Initialize the sep_flag.
+sep_flag = args.sep in pop_dicc and freq_flag
+
+# Initialize the minimum RAF
+if args.raf=='0':
+	raf_flag=False
+else:
+	raf_flag=True
+	min_raf = float(args.raf)
+
 # If the file is gzipped...
 if args.vcf_file.endswith('.gz'):
     # Intialize the gzipped vcf file.
@@ -153,13 +176,23 @@ for line in data:
             break
         # If site patterns are to be calculated from derived allele frequencies...
         if freq_flag:
-            # Intialize a dictionary to store site patterns.
-            site_patterns = {
-                'ABBA': 0, 'ABBA_HOM': 0,
-                'BABA': 0, 'BABA_HOM': 0,
-                'BAAA': 0, 'BAAA_HOM': 0,
-                'ABAA': 0, 'ABAA_HOM': 0,
-            }
+        	# Intialize a dictionary to store site patterns.
+            if not sep_flag:
+                site_patterns = {
+                    'ABBA': 0, 'ABBA_HOM': 0, 'ABBA0':0,
+                    'BABA': 0, 'BABA_HOM': 0, 'BABA0':0, 
+                    'BAAA': 0, 'BAAA_HOM': 0, 'ABBA1':0,
+                    'ABAA': 0, 'ABAA_HOM': 0, 'BABA1':0,
+                }
+            else:
+                site_patterns = {}
+                for  idx in pop_dicc[args.sep]['IDX']:
+                    site_patterns[idx]={
+                        'ABBA': 0, 'ABBA_HOM': 0, 'ABBA0':0,
+                        'BABA': 0, 'BABA_HOM': 0, 'BABA0':0, 
+                        'BAAA': 0, 'BAAA_HOM': 0, 'ABBA1':0,
+                        'ABAA': 0, 'ABAA_HOM': 0, 'BABA1':0,
+                    }
         # Else...
         else:
             # Intialize a dictionary to store site patterns.
@@ -181,6 +214,14 @@ for line in data:
     else:
         # Split the header line by tabs.
         spline = line.split()
+        # Skip the line if the RAF is below the treshold
+        if raf_flag:
+            sspline=spline[7].split(';')        
+            posRAF = [sspline.index(l) for l in sspline if l.startswith('RAF')]
+            posRAF = posRAF[0] if len(posRAF)==1 else -1
+            if posRAF>-1 and (float(sspline[posRaf][4:])<min_raf or float(sspline[posRaf][4:])>1-min_raf):
+                continue
+
         # Grab the refernce and alternative alleles.
         alleles = [spline[3], spline[4]]
         # If the site is monomorphic...
@@ -209,15 +250,25 @@ for line in data:
         elif freq_flag:
             # Intialize a alternative allele frequency dictionary.
             freq_dicc = {}
+            
             # For every focal population...
             for key in pop_dicc.keys():
                 # Intialize an alternative allele counter.
-                alt_allele_counter = 0
+                if key != args.sep or not sep_flag:
+                    alt_allele_counter = 0
+                else:
+                    alt_allele_counter = {}
+                    for  idx in pop_dicc[key]['IDX']:
+                        alt_allele_counter[idx]=0
+                        
                 # For every individual in the population...
                 if not args.GP: 
                     for idx in pop_dicc[key]['IDX']:
-		        # Count the number of alternative alleles.
-                        alt_allele_counter += spline[idx][0:3].count('1')
+		        		# Count the number of alternative alleles.
+                        if key == args.sep and sep_flag:
+                            alt_allele_counter[idx]+=spline[idx][0:3].count('1')
+                        else:
+                            alt_allele_counter += spline[idx][0:3].count('1')
                 else:
                     posGP=-1
                     #Determine which field corresponds to GP
@@ -227,49 +278,96 @@ for line in data:
                         sspline = spline[idx].split(':')
                         #Check if GP is available for the sample
                         if posGP!=-1 and sspline[posGP]!='.':
-                        #If GP is available, use it as a proxy for allele frequency
-                            alt_allele_counter += float(sspline[posGP].split(',')[2])*2+float(sspline[posGP].split(',')[1])
+                        	#If GP is available, use it as a proxy for allele frequency
+                            if key == args.sep and sep_flag:
+                                alt_allele_counter[idx]+=float(sspline[posGP].split(',')[2])*2+float(sspline[posGP].split(',')[1])
+                            else:
+                                alt_allele_counter += float(sspline[posGP].split(',')[2])*2+float(sspline[posGP].split(',')[1])
                         else:
                         # Count the number of alternative alleles.
-                            alt_allele_counter += float(spline[idx][0:3].count('1'))
-		       	   
-		    
-			
-		# Determine the alternative allele frequency.
-                freq_dicc[key] = float(alt_allele_counter) / (len(pop_dicc[key]['IDX']) * 2)
-            # If the ancestral allele is the refernce allele...
-            if freq_dicc[args.p4_population] == 0.0:
-                # Calculate site patterns.
-                site_patterns['ABBA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * freq_dicc[args.p3_population]
-                site_patterns['ABBA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * freq_dicc[args.p3_population]
-                site_patterns['BABA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * freq_dicc[args.p3_population]
-                site_patterns['BABA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * freq_dicc[args.p3_population]
-                site_patterns['BAAA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * (1 - freq_dicc[args.p3_population])
-                site_patterns['BAAA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p3_population])
-                site_patterns['ABAA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * (1 - freq_dicc[args.p3_population])
-                site_patterns['ABAA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p3_population])
-            # Else-if the ancestral allele is the alternative allele...
-            elif freq_dicc[args.p4_population] == 1.0:
-                # Calculate site patterns.
-                site_patterns['ABBA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * (1 - freq_dicc[args.p3_population])
-                site_patterns['ABBA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p3_population])
-                site_patterns['BABA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * (1 - freq_dicc[args.p3_population])
-                site_patterns['BABA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p3_population])
-                site_patterns['BAAA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * freq_dicc[args.p3_population]
-                site_patterns['BAAA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * freq_dicc[args.p3_population]
-                site_patterns['ABAA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * freq_dicc[args.p3_population]
-                site_patterns['ABAA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * freq_dicc[args.p3_population]
-            # Else...
+                            if key == args.sep and sep_flag:
+                                alt_allele_counter[idx]+=float(spline[idx][0:3].count('1'))
+                            else:
+                                alt_allele_counter += float(spline[idx][0:3].count('1'))
+		       	   			
+		            # Determine the alternative allele frequency.             
+                if key == args.sep and sep_flag:
+                    for idx in pop_dicc[key]['IDX']:
+	                    freq_dicc[idx]=float(alt_allele_counter[idx]) / 2
+                else:
+	                freq_dicc[key] = float(alt_allele_counter) / (len(pop_dicc[key]['IDX']) * 2)
+	        
+            if not sep_flag:           
+                # If the ancestral allele is the refernce allele...
+                if freq_dicc[args.p4_population] == 0.0:
+                    # Calculate site patterns.
+                    site_patterns['ABBA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * freq_dicc[args.p3_population]
+                    site_patterns['ABBA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * freq_dicc[args.p3_population]
+                    site_patterns['BABA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * freq_dicc[args.p3_population]
+                    site_patterns['BABA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * freq_dicc[args.p3_population]
+                    site_patterns['BAAA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * (1 - freq_dicc[args.p3_population])
+                    site_patterns['BAAA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p3_population])
+                    site_patterns['ABAA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * (1 - freq_dicc[args.p3_population])
+                    site_patterns['ABAA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p3_population])
+                # Else-if the ancestral allele is the alternative allele...
+                elif freq_dicc[args.p4_population] == 1.0:
+                    # Calculate site patterns.
+                    site_patterns['ABBA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * (1 - freq_dicc[args.p3_population])
+                    site_patterns['ABBA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p3_population])
+                    site_patterns['BABA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * (1 - freq_dicc[args.p3_population])
+                    site_patterns['BABA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p3_population])
+                    site_patterns['BAAA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * freq_dicc[args.p3_population]
+                    site_patterns['BAAA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * freq_dicc[args.p3_population]
+                    site_patterns['ABAA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * freq_dicc[args.p3_population]
+                    site_patterns['ABAA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * freq_dicc[args.p3_population]
+                # Else...
+                else:
+                    # Calculate site patterns.
+                    site_patterns['ABBA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
+                    site_patterns['ABBA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
+                    site_patterns['BABA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
+                    site_patterns['BABA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
+                    site_patterns['BAAA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
+                    site_patterns['BAAA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
+                    site_patterns['ABAA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
+                    site_patterns['ABAA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
             else:
-                # Calculate site patterns.
-                site_patterns['ABBA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
-                site_patterns['ABBA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
-                site_patterns['BABA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
-                site_patterns['BABA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p4_population])
-                site_patterns['BAAA'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p2_population]) * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
-                site_patterns['BAAA_HOM'] += freq_dicc[args.p1_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
-                site_patterns['ABAA'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p2_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
-                site_patterns['ABAA_HOM'] += (1 - freq_dicc[args.p1_population]) * freq_dicc[args.p3_population] * (1 - freq_dicc[args.p3_population]) * (1 - freq_dicc[args.p4_population])
+                for  idx in pop_dicc[args.sep]['IDX']:
+                    idx_p1 = idx if args.sep == args.p1_population else args.p1_population
+                    idx_p2 = idx if args.sep == args.p2_population else args.p2_population
+                    idx_p3 = idx if args.sep == args.p3_population else args.p3_population
+                    if freq_dicc[args.p4_population] == 0.0:
+                    # Calculate site patterns.
+                        site_patterns[idx]['ABBA'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p2] * freq_dicc[idx_p3]
+                        site_patterns[idx]['ABBA_HOM'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p3] * freq_dicc[idx_p3]
+                        site_patterns[idx]['BABA'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p2]) * freq_dicc[idx_p3]
+                        site_patterns[idx]['BABA_HOM'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p3]) * freq_dicc[idx_p3]
+                        site_patterns[idx]['BAAA'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p2]) * (1 - freq_dicc[idx_p3])
+                        site_patterns[idx]['BAAA_HOM'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p3]) * (1 - freq_dicc[idx_p3])
+                        site_patterns[idx]['ABAA'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p2] * (1 - freq_dicc[idx_p3])
+                        site_patterns[idx]['ABAA_HOM'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p3] * (1 - freq_dicc[idx_p3])
+                    # Else-if the ancestral allele is the alternative allele...
+                    elif freq_dicc[args.p4_population] == 1.0:
+                        # Calculate site patterns.
+                        site_patterns[idx]['ABBA'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p2]) * (1 - freq_dicc[idx_p3])
+                        site_patterns[idx]['ABBA_HOM'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p3]) * (1 - freq_dicc[idx_p3])
+                        site_patterns[idx]['BABA'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p2] * (1 - freq_dicc[idx_p3])
+                        site_patterns[idx]['BABA_HOM'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p3] * (1 - freq_dicc[idx_p3])
+                        site_patterns[idx]['BAAA'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p2] * freq_dicc[idx_p3]
+                        site_patterns[idx]['BAAA_HOM'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p3] * freq_dicc[idx_p3]
+                        site_patterns[idx]['ABAA'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p2]) * freq_dicc[idx_p3]
+                        site_patterns[idx]['ABAA_HOM'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p3]) * freq_dicc[idx_p3]
+                    # Else...
+                    else:
+                        # Calculate site patterns.
+                        site_patterns[idx]['ABBA'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p2] * freq_dicc[idx_p3] * (1 - freq_dicc[args.p4_population])
+                        site_patterns[idx]['ABBA_HOM'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p3] * freq_dicc[idx_p3] * (1 - freq_dicc[args.p4_population])
+                        site_patterns[idx]['BABA'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p2]) * freq_dicc[idx_p3] * (1 - freq_dicc[args.p4_population])
+                        site_patterns[idx]['BABA_HOM'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p3]) * freq_dicc[idx_p3] * (1 - freq_dicc[args.p4_population])
+                        site_patterns[idx]['BAAA'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p2]) * (1 - freq_dicc[idx_p3]) * (1 - freq_dicc[args.p4_population])
+                        site_patterns[idx]['BAAA_HOM'] += freq_dicc[idx_p1] * (1 - freq_dicc[idx_p3]) * (1 - freq_dicc[idx_p3]) * (1 - freq_dicc[args.p4_population])
+                        site_patterns[idx]['ABAA'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p2] * (1 - freq_dicc[idx_p3]) * (1 - freq_dicc[args.p4_population])
+                        site_patterns[idx]['ABAA_HOM'] += (1 - freq_dicc[idx_p1]) * freq_dicc[idx_p3] * (1 - freq_dicc[idx_p3]) * (1 - freq_dicc[args.p4_population])
         # Else...
         else:
             # Intialize RNG values.
@@ -339,7 +437,7 @@ header_list = [
 # Write the header list to the results file.
 out_file.write('\t'.join(header_list)+'\n')
 # If site patterns were calculated from derived allele frequencies...
-if freq_flag:
+if freq_flag and not sep_flag:
     # Calculate numerators and denonimators for detection metrics.
     d_num = (site_patterns['ABBA'] - site_patterns['BABA'])
     d_den = (site_patterns['ABBA'] + site_patterns['BABA'])
@@ -481,17 +579,30 @@ else:
             # Calculate f+.
             site_patterns[key]['f+'] = fplus_num / float(fplus_den)
         # Unpack the samples in the quartet.
-        p1, p2, p3, p4 = key.split('-')
-        # Intialize the results list.
-        results_list = [
-            p1, p2, p3, p4,
-            str(site_patterns[key]['ABBA']), str(site_patterns[key]['BABA']),
-            str(site_patterns[key]['BAAA']), str(site_patterns[key]['ABAA']),
-            str(site_patterns[key]['ABBA_HOM']), str(site_patterns[key]['BABA_HOM']),
-            str(site_patterns[key]['BAAA_HOM']), str(site_patterns[key]['ABAA_HOM']),
-            str(site_patterns[key]['D']), str(site_patterns[key]['Danc']), str(site_patterns[key]['D+']),
-            str(site_patterns[key]['fhom']), str(site_patterns[key]['fanc']), str(site_patterns[key]['f+']),
-        ]
+        if not sep_flag:
+            p1, p2, p3, p4 = key.split('-')
+            # Intialize the results list.
+            results_list = [
+                p1, p2, p3, p4,
+                str(site_patterns[key]['ABBA']), str(site_patterns[key]['BABA']),
+                str(site_patterns[key]['BAAA']), str(site_patterns[key]['ABAA']),
+                str(site_patterns[key]['ABBA_HOM']), str(site_patterns[key]['BABA_HOM']),
+                str(site_patterns[key]['BAAA_HOM']), str(site_patterns[key]['ABAA_HOM']),
+                str(site_patterns[key]['D']), str(site_patterns[key]['Danc']), str(site_patterns[key]['D+']),
+                str(site_patterns[key]['fhom']), str(site_patterns[key]['fanc']), str(site_patterns[key]['f+']),
+            ]
+        else:
+            idxI = pop_dicc[args.sep]['IDX'].index(key)
+            results_list = [
+                args.p1_population, args.p2_population, args.p3_population, args.p4_population,
+                str(site_patterns[key]['ABBA']), str(site_patterns[key]['BABA']),
+                str(site_patterns[key]['BAAA']), str(site_patterns[key]['ABAA']),
+                str(site_patterns[key]['ABBA_HOM']), str(site_patterns[key]['BABA_HOM']),
+                str(site_patterns[key]['BAAA_HOM']), str(site_patterns[key]['ABAA_HOM']),
+                str(site_patterns[key]['D']), str(site_patterns[key]['Danc']), str(site_patterns[key]['D+']),
+                str(site_patterns[key]['fhom']), str(site_patterns[key]['fanc']), str(site_patterns[key]['f+']),
+            ]
+        results_list[[args.p1_population,args.p2_population,args.p3_population,args.p4_population].index(args.sep)]=pop_dicc[args.sep]['IND'][idxI]
         # Write the results list to the results file.
         out_file.write('\t'.join(results_list)+'\n')
 
