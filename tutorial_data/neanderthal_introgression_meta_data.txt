@@ -1,0 +1,12 @@
+ind_0	AFR
+ind_1	AFR
+ind_2	AFR
+ind_3	AFR
+ind_4	AFR
+ind_5	EUR
+ind_6	EUR
+ind_7	EUR
+ind_8	EUR
+ind_9	EUR
+ind_10	NEA
+ancestor	ANC

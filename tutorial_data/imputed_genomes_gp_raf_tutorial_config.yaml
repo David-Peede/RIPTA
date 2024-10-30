@@ -1,0 +1,15 @@
+# Input and output parameters.
+vcf_path: ['./tutorial_data/DownSampling2Raw_References_Chimp_EPO_Biallelic_snps_chr21.vcf.gz']
+contig_length: [48_129_895]
+block_size: 1_000_000
+meta_data_path: './tutorial_data/imputed_genomes_meta_data.txt'
+results_path_prefix: './tutorial_data/imputed_genomes_gp_raf'
+log_path_prefix: './tutorial_data/imputed_genomes_gp_raf'
+use_raf: True
+raf_threshold: 0.05
+number_of_threads: 'max'
+
+# Site pattern parameters.
+compute_site_patterns: True
+site_pattern_config_path: './tutorial_data/imputed_genomes_gp_raf_site_pattern_config.txt'
+site_pattern_stats: ['D', 'Danc', 'D+', 'fhom', 'fanc', 'f+']

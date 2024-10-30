@@ -1,0 +1,15 @@
+# Input and output parameters.
+vcf_path: ['./tutorial_data/neanderthal_introgression.vcf.gz']
+contig_length: [100_000_000]
+block_size: 1_000_000
+meta_data_path: './tutorial_data/neanderthal_introgression_meta_data.txt'
+results_path_prefix: './tutorial_data/neanderthal_introgression'
+log_path_prefix: './tutorial_data/neanderthal_introgression'
+use_raf: False
+raf_threshold: None
+number_of_threads: 'max'
+
+# Site pattern parameters.
+compute_site_patterns: True
+site_pattern_config_path: './tutorial_data/neanderthal_introgression_site_pattern_config.txt'
+site_pattern_stats: ['D', 'Danc', 'D+', 'fhom', 'fanc', 'f+']
