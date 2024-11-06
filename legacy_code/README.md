@@ -1,4 +1,4 @@
-![ripta_logo](./ripta_logo.png)
+![ripta_logo](../ripta_logo.png)
 
 # Re-evaluating Introgression site Patterns Through Ancestral alleles
 
