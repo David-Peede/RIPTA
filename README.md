@@ -2,7 +2,7 @@
 
 # Re-evaluating Introgression site Patterns Through Ancestral alleles
 
-**NOTE:** This is a beta version of `RIPTA` and is subject to change, all equations implemented are described in `appendix/RIPTA_equations.pdf` and the weighted-block Jackknife procedure is described in `appendix/weighted_block_jackknife_procedure.pdf`. If you have any questions or feature requests, please leave a detailed issue. If you use `RIPTA` in your work, please cite doi: https://doi.org/10.1101/2022.12.02.518851.
+**NOTE:** This is a beta version of `RIPTA` and is subject to change, all equations implemented are described in `appendix/RIPTA-equations.pdf` and the weighted-block Jackknife procedure is described in `appendix/RIPTA-weighted-block-jackknife-procedure.pdf`. If you have any questions or feature requests, please leave a detailed issue. If you use `RIPTA` in your work, please cite doi: https://doi.org/10.1101/2022.12.02.518851.
 
 ---
 
