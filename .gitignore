@@ -1,5 +1,9 @@
 **/.DS_Store
 ripta/__pycache__
+ripta/bin
+ripta/include
+ripta/lib
+ripta/pyvenv.cfg
 legacy_code/.DS_Store
 legacy_code/preprint_v0
 legacy_code/preprint_v1

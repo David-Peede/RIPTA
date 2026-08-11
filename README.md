@@ -23,12 +23,6 @@ source RIPTA/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-### 3. Install the `RIPTA` package
-
-```bash
-pip install .
-```
-
 ---
 
 ## Usage
